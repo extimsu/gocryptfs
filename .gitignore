@@ -1,5 +1,5 @@
 # the gocryptfs executable
-./gocryptfs
+gocryptfs
 
 
 # temporary files created by the tests

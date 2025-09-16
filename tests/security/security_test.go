@@ -2,9 +2,11 @@ package security
 
 import (
 	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +126,221 @@ func TestFilenameAuthentication(t *testing.T) {
 
 	// Test wipe
 	fa.Wipe()
+}
+
+// TestFilenameTamperDetection tests comprehensive tamper detection scenarios
+func TestFilenameTamperDetection(t *testing.T) {
+	masterKey := make([]byte, 32)
+	rand.Read(masterKey)
+	fa := filenameauth.New(masterKey, true)
+
+	testCases := []struct {
+		name          string
+		encryptedName string
+		tamperFunc    func(string) string
+		shouldFail    bool
+	}{
+		{
+			name:          "Single character MAC tamper",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc:    func(name string) string { return name[:len(name)-1] + "X" },
+			shouldFail:    true,
+		},
+		{
+			name:          "MAC truncation",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc:    func(name string) string { return name[:len(name)-10] },
+			shouldFail:    true,
+		},
+		{
+			name:          "MAC replacement",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc: func(name string) string {
+				parts := strings.Split(name, ".")
+				if len(parts) != 2 {
+					return name
+				}
+				return parts[0] + ".tampered_mac"
+			},
+			shouldFail: true,
+		},
+		{
+			name:          "Encrypted name tamper",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc: func(name string) string {
+				parts := strings.Split(name, ".")
+				if len(parts) != 2 {
+					return name
+				}
+				return "tampered_name." + parts[1]
+			},
+			shouldFail: true,
+		},
+		{
+			name:          "Complete replacement",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc:    func(name string) string { return "completely_different_name.fake_mac" },
+			shouldFail:    true,
+		},
+		{
+			name:          "Valid name (no tamper)",
+			encryptedName: "test_encrypted_filename",
+			tamperFunc:    func(name string) string { return name },
+			shouldFail:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create authenticated filename
+			authenticatedName, err := fa.AuthenticateFilename(tc.encryptedName)
+			if err != nil {
+				t.Fatalf("Failed to authenticate filename: %v", err)
+			}
+
+			// Apply tampering
+			tamperedName := tc.tamperFunc(authenticatedName)
+
+			// Test verification
+			_, err = fa.VerifyFilename(tamperedName)
+			if tc.shouldFail && err == nil {
+				t.Errorf("Verification should have failed for tampered filename: %s", tc.name)
+			}
+			if !tc.shouldFail && err != nil {
+				t.Errorf("Verification should have succeeded for valid filename: %s, error: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// TestLongnameTamperDetection tests tamper detection for long filenames
+func TestLongnameTamperDetection(t *testing.T) {
+	masterKey := make([]byte, 32)
+	rand.Read(masterKey)
+	fa := filenameauth.New(masterKey, true)
+
+	// Test with various long filename scenarios
+	longNames := []string{
+		"very_long_filename_that_exceeds_normal_limits_and_should_be_hashed_to_longname",
+		"another_extremely_long_filename_with_special_characters_!@#$%^&*()_+-=[]{}|;':\",./<>?",
+		"unicode_filename_with_特殊字符_and_emoji_🚀_and_more_unicode_测试",
+		strings.Repeat("a", 200), // 200 character filename
+		strings.Repeat("测试", 50), // Unicode repeated
+	}
+
+	for _, longName := range longNames {
+		t.Run(fmt.Sprintf("longname_%d_chars", len(longName)), func(t *testing.T) {
+			// Create authenticated long filename
+			authenticatedName, err := fa.AuthenticateFilename(longName)
+			if err != nil {
+				t.Fatalf("Failed to authenticate long filename: %v", err)
+			}
+
+			// Test that verification works for valid long filename
+			verifiedName, err := fa.VerifyFilename(authenticatedName)
+			if err != nil {
+				t.Fatalf("Failed to verify long filename: %v", err)
+			}
+			if verifiedName != longName {
+				t.Errorf("Verified long name mismatch: expected %s, got %s", longName, verifiedName)
+			}
+
+			// Test tampering detection for long filenames
+			tamperedName := authenticatedName[:len(authenticatedName)-1] + "X"
+			_, err = fa.VerifyFilename(tamperedName)
+			if err == nil {
+				t.Error("Verification should fail for tampered long filename")
+			}
+		})
+	}
+}
+
+// TestFilenameAuthEdgeCases tests edge cases for filename authentication
+func TestFilenameAuthEdgeCases(t *testing.T) {
+	masterKey := make([]byte, 32)
+	rand.Read(masterKey)
+	fa := filenameauth.New(masterKey, true)
+
+	edgeCases := []struct {
+		name        string
+		filename    string
+		expectError bool
+	}{
+		{"Empty filename", "", false},
+		{"Single character", "a", false},
+		{"Filename with dots", "file.name.with.dots", false},
+		{"Filename with separators", "file-name_with_separators", false},
+		{"Unicode filename", "файл_с_unicode_имени", false},
+		{"Very long filename", strings.Repeat("a", 1000), false},
+		{"Filename with newlines", "file\nwith\nnewlines", false},
+		{"Filename with null bytes", "file\x00with\x00nulls", false},
+	}
+
+	for _, tc := range edgeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test authentication
+			authenticatedName, err := fa.AuthenticateFilename(tc.filename)
+			if tc.expectError && err == nil {
+				t.Errorf("Expected error for filename: %s", tc.name)
+			}
+			if !tc.expectError && err != nil {
+				t.Errorf("Unexpected error for filename %s: %v", tc.name, err)
+			}
+
+			if !tc.expectError {
+				// Test verification
+				verifiedName, err := fa.VerifyFilename(authenticatedName)
+				if err != nil {
+					t.Errorf("Failed to verify filename %s: %v", tc.name, err)
+				}
+				if verifiedName != tc.filename {
+					t.Errorf("Verified name mismatch for %s: expected %s, got %s", tc.name, tc.filename, verifiedName)
+				}
+			}
+		})
+	}
+}
+
+// TestFilenameAuthWithDifferentKeys tests that different keys produce different MACs
+func TestFilenameAuthWithDifferentKeys(t *testing.T) {
+	// Create two different master keys
+	masterKey1 := make([]byte, 32)
+	masterKey2 := make([]byte, 32)
+	rand.Read(masterKey1)
+	rand.Read(masterKey2)
+
+	fa1 := filenameauth.New(masterKey1, true)
+	fa2 := filenameauth.New(masterKey2, true)
+
+	encryptedName := "test_encrypted_filename"
+
+	// Authenticate with first key
+	authenticatedName1, err := fa1.AuthenticateFilename(encryptedName)
+	if err != nil {
+		t.Fatalf("Failed to authenticate with first key: %v", err)
+	}
+
+	// Authenticate with second key
+	authenticatedName2, err := fa2.AuthenticateFilename(encryptedName)
+	if err != nil {
+		t.Fatalf("Failed to authenticate with second key: %v", err)
+	}
+
+	// MACs should be different
+	if authenticatedName1 == authenticatedName2 {
+		t.Error("Different keys should produce different MACs")
+	}
+
+	// Verification should fail when using wrong key
+	_, err = fa2.VerifyFilename(authenticatedName1)
+	if err == nil {
+		t.Error("Verification should fail when using wrong key")
+	}
+
+	_, err = fa1.VerifyFilename(authenticatedName2)
+	if err == nil {
+		t.Error("Verification should fail when using wrong key")
+	}
 }
 
 // TestArgon2idKDF tests the Argon2id key derivation function

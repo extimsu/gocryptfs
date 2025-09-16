@@ -134,6 +134,7 @@ func (be *ContentEnc) decryptBlocksSequential(ciphertext []byte, firstBlockNo ui
 		be.pBlockPool.Put(pBlock)
 		blockNo++
 	}
+	// Return the buffer data and let the caller handle the pool
 	return pBuf.Bytes(), err
 }
 

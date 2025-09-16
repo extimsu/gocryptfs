@@ -26,6 +26,7 @@ import (
 	"github.com/rfjakob/gocryptfs/v2/internal/cryptocore"
 	"github.com/rfjakob/gocryptfs/v2/internal/ctlsocksrv"
 	"github.com/rfjakob/gocryptfs/v2/internal/exitcodes"
+	"github.com/rfjakob/gocryptfs/v2/internal/filenameauth"
 	"github.com/rfjakob/gocryptfs/v2/internal/fusefrontend"
 	"github.com/rfjakob/gocryptfs/v2/internal/fusefrontend_reverse"
 	"github.com/rfjakob/gocryptfs/v2/internal/nametransform"
@@ -328,8 +329,14 @@ func initFuseFrontend(args *argContainer) (rootNode fs.InodeEmbedder, wipeKeys f
 	// Init crypto backend
 	cCore := cryptocore.New(masterkey, cryptoBackend, IVBits, args.hkdf)
 	cEnc := contentenc.New(cCore, contentenc.DefaultBS)
+	// Initialize optional filename authentication helper
+	var fa *filenameauth.FilenameAuth
+	if confFile != nil && confFile.IsFeatureFlagSet(configfile.FlagFilenameAuth) {
+		// Use the master key before it gets wiped
+		fa = filenameauth.New(masterkey, true)
+	}
 	nameTransform := nametransform.New(cCore.EMECipher, frontendArgs.LongNames, args.longnamemax,
-		args.raw64, []string(args.badname), frontendArgs.DeterministicNames)
+		args.raw64, []string(args.badname), frontendArgs.DeterministicNames, fa)
 	// After the crypto backend is initialized,
 	// we can purge the master key from memory.
 	for i := range masterkey {

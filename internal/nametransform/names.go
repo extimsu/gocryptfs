@@ -12,6 +12,7 @@ import (
 
 	"github.com/rfjakob/eme"
 
+	"github.com/rfjakob/gocryptfs/v2/internal/filenameauth"
 	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
 )
 
@@ -32,6 +33,8 @@ type NameTransform struct {
 	// Patterns to bypass decryption
 	badnamePatterns    []string
 	deterministicNames bool
+	// Optional filename authentication helper
+	filenameAuth *filenameauth.FilenameAuth
 }
 
 // New returns a new NameTransform instance.
@@ -39,7 +42,7 @@ type NameTransform struct {
 // If `longNames` is set, names longer than `longNameMax` are hashed to
 // `gocryptfs.longname.[sha256]`.
 // Pass `longNameMax = 0` to use the default value (255).
-func New(e *eme.EMECipher, longNames bool, longNameMax uint8, raw64 bool, badname []string, deterministicNames bool) *NameTransform {
+func New(e *eme.EMECipher, longNames bool, longNameMax uint8, raw64 bool, badname []string, deterministicNames bool, fa *filenameauth.FilenameAuth) *NameTransform {
 	tlog.Debug.Printf("nametransform.New: longNameMax=%v, raw64=%v, badname=%q",
 		longNameMax, raw64, badname)
 	b64 := base64.URLEncoding
@@ -61,12 +64,21 @@ func New(e *eme.EMECipher, longNames bool, longNameMax uint8, raw64 bool, badnam
 		B64:                b64,
 		badnamePatterns:    badname,
 		deterministicNames: deterministicNames,
+		filenameAuth:       fa,
 	}
 }
 
 // DecryptName calls decryptName to try and decrypt a base64-encoded encrypted
 // filename "cipherName", and failing that checks if it can be bypassed
 func (n *NameTransform) DecryptName(cipherName string, iv []byte) (string, error) {
+	// If filename authentication is enabled, verify and strip MAC first
+	if n.filenameAuth != nil && n.filenameAuth.IsEnabled() {
+		var err error
+		cipherName, err = n.filenameAuth.VerifyFilename(cipherName)
+		if err != nil {
+			return "", syscall.EBADMSG
+		}
+	}
 	res, err := n.decryptName(cipherName, iv)
 	if err != nil && n.HaveBadnamePatterns() {
 		res, err = n.decryptBadname(cipherName, iv)
@@ -126,7 +138,15 @@ func (n *NameTransform) EncryptName(plainName string, iv []byte) (cipherName64 s
 		tlog.Warn.Printf("EncryptName %q: invalid plainName: %v", plainName, err)
 		return "", syscall.EBADMSG
 	}
-	return n.encryptName(plainName, iv), nil
+	enc := n.encryptName(plainName, iv)
+	if n.filenameAuth != nil && n.filenameAuth.IsEnabled() {
+		authName, err := n.filenameAuth.AuthenticateFilename(enc)
+		if err != nil {
+			return "", syscall.EBADMSG
+		}
+		return authName, nil
+	}
+	return enc, nil
 }
 
 // encryptName encrypts "plainName" and returns a base64-encoded "cipherName64",

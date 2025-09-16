@@ -223,7 +223,7 @@ func (f *File) doRead(dst []byte, off uint64, length uint64) ([]byte, syscall.Er
 	// else: out stays empty, file was smaller than the requested offset
 
 	out = append(dst, out...)
-	f.rootNode.contentEnc.PReqPool.Put(plaintext)
+	// Note: plaintext is not from the pool, so we don't put it back
 
 	return out, 0
 }

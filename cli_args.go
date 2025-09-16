@@ -32,7 +32,7 @@ type argContainer struct {
 	longnames, allow_other, reverse, aessiv, nonempty, raw64,
 	noprealloc, speed, speed_enhanced, hkdf, serialize_reads, hh, info,
 	sharedstorage, fsck, one_file_system, deterministic_names,
-	xchacha, argon2id, cpu_aware, filename_auth bool
+	xchacha, argon2id, cpu_aware, filename_auth, no_filename_auth bool
 	blocksize                   int
 	writeback_cache, async_read bool
 	// Mount options with opposites
@@ -194,7 +194,8 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 	flagSet.BoolVar(&args.xchacha, "xchacha", false, "Use XChaCha20-Poly1305 file content encryption")
 	flagSet.BoolVar(&args.argon2id, "argon2id", false, "Use Argon2id for password-based key derivation instead of scrypt")
 	flagSet.BoolVar(&args.cpu_aware, "cpu-aware", false, "Automatically select encryption backend based on CPU capabilities")
-	flagSet.BoolVar(&args.filename_auth, "filename-auth", false, "Enable filename authentication with MAC to detect tampering")
+	flagSet.BoolVar(&args.filename_auth, "filename-auth", true, "Enable filename authentication with MAC to detect tampering (default: enabled)")
+	flagSet.BoolVar(&args.no_filename_auth, "no-filename-auth", false, "Disable filename authentication (overrides --filename-auth)")
 	flagSet.IntVar(&args.blocksize, "blocksize", 4096, "Block size in bytes (4096, 16384, 32768, 65536)")
 	flagSet.BoolVar(&args.writeback_cache, "writeback-cache", false, "Enable FUSE writeback cache for better write performance")
 	flagSet.BoolVar(&args.async_read, "async-read", false, "Enable FUSE async read for better read performance")
@@ -329,6 +330,10 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 	if !validBlockSize {
 		tlog.Fatal.Printf("Invalid block size: %d. Valid sizes are: 4096, 16384, 32768, 65536", args.blocksize)
 		os.Exit(exitcodes.Usage)
+	}
+	// Handle --no-filename-auth flag (overrides --filename-auth)
+	if args.no_filename_auth {
+		args.filename_auth = false
 	}
 	if len(args.extpass) > 0 && len(args.passfile) != 0 {
 		tlog.Fatal.Printf("The options -extpass and -passfile cannot be used at the same time")
