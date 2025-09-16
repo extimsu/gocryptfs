@@ -1,0 +1,267 @@
+[0;34m[12:29:44][0m Starting macOS gocryptfs performance test...
+[0;34m[12:29:44][0m Cipher directory: /tmp/gocryptfs-benchmark-75282/cipher
+[0;34m[12:29:44][0m Mount point: /tmp/gocryptfs-benchmark-75282/mount
+[0;34m[12:29:44][0m Test size: 50M
+[0;34m[12:29:44][0m Platform: Darwin arm64
+[0;34m[12:29:44][0m Initializing encrypted filesystem...
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-benchmark-75282/cipher MOUNTPOINT
+[0;34m[12:29:44][0m Mounting filesystem...
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:29:48] ✓[0m Filesystem mounted successfully
+[0;34m[12:29:48][0m Testing basic filesystem functionality...
+[0;32m[12:29:48] ✓[0m Basic read/write test passed
+[0;34m[12:29:48][0m Testing file operations across different sizes...
+[0;34m[12:29:48][0m Testing small files (1KB - 100KB)...
+[0;34m[12:29:48][0m   Testing 1K files...
+[0;32m[12:29:48] ✓[0m     1K: Write .18 MB/s, Read .24 MB/s
+[0;34m[12:29:48][0m   Testing 10K files...
+[0;32m[12:29:48] ✓[0m     10K: Write 1.96 MB/s, Read 2.47 MB/s
+[0;34m[12:29:48][0m   Testing 100K files...
+[0;32m[12:29:48] ✓[0m     100K: Write 10.46 MB/s, Read 26.02 MB/s
+[0;34m[12:29:48][0m Testing medium files (1MB - 10MB)...
+[0;34m[12:29:48][0m   Testing 1M files...
+[0;32m[12:29:48] ✓[0m     1M: Write 166.25 MB/s, Read 252.39 MB/s
+[0;34m[12:29:48][0m   Testing 10M files...
+[0;32m[12:29:48] ✓[0m     10M: Write 470.18 MB/s, Read 2086.37 MB/s
+[0;34m[12:29:48][0m Testing large files (50MB - 1GB)...
+[0;34m[12:29:48][0m   Testing 50M files...
+[0;32m[12:29:48] ✓[0m     50M: Write 605.09 MB/s, Read 7257.94 MB/s
+[0;34m[12:29:48][0m   Testing 100M files...
+[0;32m[12:29:48] ✓[0m     100M: Write 620.77 MB/s, Read 10659.84 MB/s
+[0;34m[12:29:48][0m   Testing 500M files...
+[0;32m[12:29:49] ✓[0m     500M: Write 650.03 MB/s, Read 16961.22 MB/s
+[0;34m[12:29:49][0m   Testing 1G files...
+[0;32m[12:29:51] ✓[0m     1G: Write 648.31 MB/s, Read 18456.76 MB/s
+[0;34m[12:29:51][0m Testing small file operations (many files)...
+[0;34m[12:29:51][0m   Testing 100 x 1KB files...
+[0;32m[12:29:51] ✓[0m     1KB files: 2037.24 files/s
+[0;34m[12:29:51][0m   Testing 50 x 10KB files...
+[0;32m[12:29:51] ✓[0m     10KB files: 410.86 files/s
+[0;34m[12:29:51][0m Testing mixed file operations...
+[0;32m[12:29:51] ✓[0m Mixed operations: 399.39 ops/s
+[0;34m[12:29:51][0m Testing sequential vs random access patterns...
+[0;34m[12:29:51][0m   Sequential write test...
+[0;32m[12:29:51] ✓[0m     Sequential write: 458.36 MB/s
+[0;34m[12:29:51][0m   Random write test...
+[0;32m[12:29:52] ✓[0m     Random write: 197.71 MB/s
+[0;34m[12:29:52][0m Testing concurrent operations...
+[0;34m[12:29:52][0m   Concurrent write test (4 parallel streams)...
+[0;32m[12:29:52] ✓[0m     Concurrent write: 1242.73 MB/s
+[0;34m[12:29:52][0m   Concurrent read test (4 parallel streams)...
+[0;32m[12:29:52] ✓[0m     Concurrent read: 7151.79 MB/s
+[0;34m[12:29:52][0m Testing file metadata operations...
+[0;34m[12:29:52][0m   Directory listing test...
+[0;32m[12:29:52] ✓[0m     Directory listing: 19.45 ops/s
+[0;34m[12:29:52][0m   File stat test...
+[0;32m[12:29:53] ✓[0m     File stat: 215.48 ops/s
+[0;34m[12:29:53][0m Running Enhanced Crypto Configuration Comparison...
+[0;34m[12:29:53][0m Testing all available encryption configurations...
+[0;34m[12:29:53][0m   Testing: AES-GCM-256-Go + scrypt logN=17 + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-default-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:29:55] ✓[0m     Write: 506.74 MB/s, Read: 6805.49 MB/s, Small: 1812.97 files/s, Mixed: 388.76 ops/s
+[0;34m[12:29:55][0m   Testing: AES-GCM-256-Go + Argon2id + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:29:58] ✓[0m     Write: 535.83 MB/s, Read: 6853.07 MB/s, Small: 1825.41 files/s, Mixed: 422.14 ops/s
+[0;34m[12:29:58][0m   Testing: XChaCha20-Poly1305-Go + scrypt logN=17 + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-xchacha-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:01] ✓[0m     Write: 305.26 MB/s, Read: 6560.81 MB/s, Small: 1770.85 files/s, Mixed: 428.54 ops/s
+[0;34m[12:30:01][0m   Testing: XChaCha20-Poly1305-Go + Argon2id + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-xchacha-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:04] ✓[0m     Write: 313.16 MB/s, Read: 6831.53 MB/s, Small: 1777.33 files/s, Mixed: 405.57 ops/s
+[0;34m[12:30:04][0m   Testing: AES-SIV-512-Go + scrypt logN=17 + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-aessiv-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:07] ✓[0m     Write: 271.19 MB/s, Read: 6760.41 MB/s, Small: 1792.82 files/s, Mixed: 404.79 ops/s
+[0;34m[12:30:07][0m   Testing: AES-SIV-512-Go + Argon2id + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-aessiv-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:10] ✓[0m     Write: 266.28 MB/s, Read: 6336.33 MB/s, Small: 1836.41 files/s, Mixed: 426.95 ops/s
+[0;34m[12:30:10][0m   Testing: AES-GCM-256-OpenSSL + scrypt logN=17 + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-openssl-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:13] ✓[0m     Write: 471.97 MB/s, Read: 6952.16 MB/s, Small: 1819.70 files/s, Mixed: 440.02 ops/s
+[0;34m[12:30:13][0m   Testing: AES-GCM-256-OpenSSL + Argon2id + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-openssl-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:15] ✓[0m     Write: 532.10 MB/s, Read: 7067.13 MB/s, Small: 1854.73 files/s, Mixed: 456.79 ops/s
+[0;34m[12:30:15][0m   Testing: XChaCha20-Poly1305-OpenSSL + scrypt logN=17 + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-openssl-xchacha-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:18] ✓[0m     Write: 303.40 MB/s, Read: 6469.97 MB/s, Small: 1949.24 files/s, Mixed: 406.82 ops/s
+[0;34m[12:30:18][0m   Testing: XChaCha20-Poly1305-OpenSSL + Argon2id + HKDF + EMENames + DirIV
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-openssl-xchacha-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:21] ✓[0m     Write: 306.21 MB/s, Read: 7032.34 MB/s, Small: 1819.83 files/s, Mixed: 415.90 ops/s
+[0;34m[12:30:21][0m   Testing: AES-GCM-256-Go + scrypt logN=17 + HKDF + PlaintextNames
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-plaintextnames-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:24] ✓[0m     Write: 494.59 MB/s, Read: 6640.98 MB/s, Small: 1849.11 files/s, Mixed: 439.08 ops/s
+[0;34m[12:30:24][0m   Testing: AES-GCM-256-Go + Argon2id + HKDF + PlaintextNames
+Choose a password for protecting your files.
+Reading Password from stdin (connected to "?")
+Not running on a terminal, suppressing master key display
+The gocryptfs filesystem has been created successfully.
+You can now mount it using: gocryptfs /tmp/gocryptfs-crypto-test-plaintextnames-argon2id-75282 MOUNTPOINT
+Reading Password from stdin (connected to "?")
+Decrypting master key
+Filesystem mounted and ready.
+[0;32m[12:30:26] ✓[0m     Write: 531.16 MB/s, Read: 6580.67 MB/s, Small: 1803.29 files/s, Mixed: 405.96 ops/s
+
+==========================================
+Enhanced Crypto Configuration Comparison
+==========================================
+Platform: Darwin arm64
+
+Configuration             Write (MB/s) Read (MB/s)  Small Files/s   Mixed Ops/s 
+--------------------------------------------------------------------------------
+default                   506.74       6805.49      1812.97         388.76      
+argon2id                  535.83       6853.07      1825.41         422.14      
+xchacha                   305.26       6560.81      1770.85         428.54      
+xchacha-argon2id          313.16       6831.53      1777.33         405.57      
+aessiv                    271.19       6760.41      1792.82         404.79      
+aessiv-argon2id           266.28       6336.33      1836.41         426.95      
+openssl                   471.97       6952.16      1819.70         440.02      
+openssl-argon2id          532.10       7067.13      1854.73         456.79      
+openssl-xchacha           303.40       6469.97      1949.24         406.82      
+openssl-xchacha-argon2id  306.21       7032.34      1819.83         415.90      
+plaintextnames            494.59       6640.98      1849.11         439.08      
+plaintextnames-argon2id   531.16       6580.67      1803.29         405.96      
+--------------------------------------------------------------------------------
+
+Best Performers:
+  Write Speed:     argon2id (535.83 MB/s)
+  Read Speed:      openssl-argon2id (7067.13 MB/s)
+  Small Files:     openssl-xchacha (1949.24 files/s)
+  Mixed Operations: openssl-argon2id (456.79 ops/s)
+==========================================
+[0;34m[12:30:27][0m Testing encryption mode detection...
+[0;34m[12:30:27][0m Config file contents:
+{
+	"Creator": "gocryptfs v2.6.1",
+	"EncryptedKey": "qF4HV9FHGub3DuOOlrTQosg2pDrQ4ogApuamSjXvl1qjKy0Fa35hK/I76TNDe+Id8scY3ImCYR5tXGFfBxXl4g==",
+	"ScryptObject": {
+		"Salt": "NnOSF67AOE6u/OsHs8qDnYJ6KoolYTv3PdF588934D4=",
+		"N": 65536,
+		"R": 8,
+		"P": 1,
+		"KeyLen": 32
+	},
+
+==========================================
+gocryptfs Performance Test Results (macOS)
+==========================================
+Platform: Darwin arm64
+gocryptfs Version: gocryptfs v2.6.1 without_openssl; go-fuse v2.8.0; 2025-09-16 go1.25.1 darwin/arm64
+
+File Size Performance:
+  1KB:   Write .18 MB/s, Read .24 MB/s
+  10KB:  Write 1.96 MB/s, Read 2.47 MB/s
+  100KB: Write 10.46 MB/s, Read 26.02 MB/s
+  1MB:   Write 166.25 MB/s, Read 252.39 MB/s
+  10MB:  Write 470.18 MB/s, Read 2086.37 MB/s
+  50MB:  Write 605.09 MB/s, Read 7257.94 MB/s
+  100MB: Write 620.77 MB/s, Read 10659.84 MB/s
+  500MB: Write 650.03 MB/s, Read 16961.22 MB/s
+  1GB:   Write 648.31 MB/s, Read 18456.76 MB/s
+
+Small File Operations:
+  1KB files:     2037.24 files/s
+  10KB files:    410.86 files/s
+
+Mixed Operations:
+  Mixed ops:     399.39 ops/s
+  Sequential:    458.36 MB/s
+  Random:        197.71 MB/s
+
+Concurrent Operations:
+  Concurrent write: 1242.73 MB/s
+  Concurrent read:  7151.79 MB/s
+
+Metadata Operations:
+  Directory listing: 19.45 ops/s
+  File stat:         215.48 ops/s
+==========================================
+[0;32m[12:30:27] ✓[0m Performance test completed successfully
+
+System Information:
+CPU: Apple M3 Max
+Memory: 128 GB
+Disk: /dev/disk3s5 (926Gi total, 407Gi available)
+[0;34m[12:30:27][0m Cleaning up...
+[0;32m[12:30:27] ✓[0m Cleanup completed
