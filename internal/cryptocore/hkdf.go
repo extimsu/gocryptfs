@@ -28,3 +28,8 @@ func hkdfDerive(masterkey []byte, info string, outLen int) (out []byte) {
 	}
 	return out
 }
+
+// HKDFDerive is a public wrapper for hkdfDerive
+func HKDFDerive(masterkey []byte, info []byte, outLen int) []byte {
+	return hkdfDerive(masterkey, string(info), outLen)
+}

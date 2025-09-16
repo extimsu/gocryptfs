@@ -72,6 +72,11 @@ func initDir(args *argContainer) {
 				"Notice: Your CPU does not have AES-GCM acceleration. Consider using -xchacha for better performance." +
 				tlog.ColorReset)
 		}
+		if args.plaintextnames {
+			tlog.Info.Printf(tlog.ColorRed +
+				"WARNING: PlaintextNames is enabled. Filenames will be stored in plaintext and visible to anyone with access to the cipher directory!" +
+				tlog.ColorReset)
+		}
 	}
 	// Choose password for config file
 	if len(args.extpass) == 0 && args.fido2 == "" {
@@ -109,6 +114,9 @@ func initDir(args *argContainer) {
 			XChaCha20Poly1305:  args.xchacha,
 			LongNameMax:        args.longnamemax,
 			Masterkey:          handleArgsMasterkey(args),
+			Argon2id:           args.argon2id,
+			FilenameAuth:       args.filename_auth,
+			BlockSize:          args.blocksize,
 		})
 		if err != nil {
 			tlog.Fatal.Println(err)

@@ -34,21 +34,30 @@ const (
 	FlagFIDO2
 	// FlagXChaCha20Poly1305 means we use XChaCha20-Poly1305 file content encryption
 	FlagXChaCha20Poly1305
+	// FlagArgon2id means we use Argon2id for password-based key derivation instead of scrypt
+	FlagArgon2id
+	// FlagFilenameAuth means we use MAC authentication for filenames to detect tampering
+	FlagFilenameAuth
+	// FlagConfigurableBlockSize means we support configurable block sizes (16-64KB)
+	FlagConfigurableBlockSize
 )
 
 // knownFlags stores the known feature flags and their string representation
 var knownFlags = map[flagIota]string{
-	FlagPlaintextNames:    "PlaintextNames",
-	FlagDirIV:             "DirIV",
-	FlagEMENames:          "EMENames",
-	FlagGCMIV128:          "GCMIV128",
-	FlagLongNames:         "LongNames",
-	FlagLongNameMax:       "LongNameMax",
-	FlagAESSIV:            "AESSIV",
-	FlagRaw64:             "Raw64",
-	FlagHKDF:              "HKDF",
-	FlagFIDO2:             "FIDO2",
-	FlagXChaCha20Poly1305: "XChaCha20Poly1305",
+	FlagPlaintextNames:        "PlaintextNames",
+	FlagDirIV:                 "DirIV",
+	FlagEMENames:              "EMENames",
+	FlagGCMIV128:              "GCMIV128",
+	FlagLongNames:             "LongNames",
+	FlagLongNameMax:           "LongNameMax",
+	FlagAESSIV:                "AESSIV",
+	FlagRaw64:                 "Raw64",
+	FlagHKDF:                  "HKDF",
+	FlagFIDO2:                 "FIDO2",
+	FlagXChaCha20Poly1305:     "XChaCha20Poly1305",
+	FlagArgon2id:              "Argon2id",
+	FlagFilenameAuth:          "FilenameAuth",
+	FlagConfigurableBlockSize: "ConfigurableBlockSize",
 }
 
 // isFeatureFlagKnown verifies that we understand a feature flag.

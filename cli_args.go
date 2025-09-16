@@ -19,6 +19,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/rfjakob/gocryptfs/v2/internal/configfile"
+	"github.com/rfjakob/gocryptfs/v2/internal/cpudetection"
 	"github.com/rfjakob/gocryptfs/v2/internal/exitcodes"
 	"github.com/rfjakob/gocryptfs/v2/internal/stupidgcm"
 	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
@@ -29,9 +30,11 @@ type argContainer struct {
 	debug, init, zerokey, fusedebug, openssl, passwd, fg, version,
 	plaintextnames, quiet, nosyslog, wpanic,
 	longnames, allow_other, reverse, aessiv, nonempty, raw64,
-	noprealloc, speed, hkdf, serialize_reads, hh, info,
+	noprealloc, speed, speed_enhanced, hkdf, serialize_reads, hh, info,
 	sharedstorage, fsck, one_file_system, deterministic_names,
-	xchacha bool
+	xchacha, argon2id, cpu_aware, filename_auth bool
+	blocksize                   int
+	writeback_cache, async_read bool
 	// Mount options with opposites
 	dev, nodev, suid, nosuid, exec, noexec, rw, ro, kernel_cache, acl bool
 	masterkey, mountpoint, cipherdir, cpuprofile,
@@ -165,7 +168,7 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 	flagSet.BoolVar(&args.fg, "f", false, "")
 	flagSet.BoolVar(&args.fg, "fg", false, "Stay in the foreground")
 	flagSet.BoolVar(&args.version, "version", false, "Print version and exit")
-	flagSet.BoolVar(&args.plaintextnames, "plaintextnames", false, "Do not encrypt file names")
+	flagSet.BoolVar(&args.plaintextnames, "plaintextnames", false, "Do not encrypt file names (SECURITY RISK: filenames will be visible in plaintext)")
 	flagSet.BoolVar(&args.quiet, "q", false, "")
 	flagSet.BoolVar(&args.quiet, "quiet", false, "Quiet - silence informational messages")
 	flagSet.BoolVar(&args.nosyslog, "nosyslog", false, "Do not redirect output to syslog when running in the background")
@@ -179,6 +182,7 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 	flagSet.BoolVar(&args.raw64, "raw64", true, "Use unpadded base64 for file names")
 	flagSet.BoolVar(&args.noprealloc, "noprealloc", false, "Disable preallocation before writing")
 	flagSet.BoolVar(&args.speed, "speed", false, "Run crypto speed test")
+	flagSet.BoolVar(&args.speed_enhanced, "speed-enhanced", false, "Run enhanced crypto speed test with decryption and block size scaling")
 	flagSet.BoolVar(&args.hkdf, "hkdf", true, "Use HKDF as an additional key derivation step")
 	flagSet.BoolVar(&args.serialize_reads, "serialize_reads", false, "Try to serialize read operations")
 	flagSet.BoolVar(&args.hh, "hh", false, "Show this long help text")
@@ -188,6 +192,12 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 	flagSet.BoolVar(&args.one_file_system, "one-file-system", false, "Don't cross filesystem boundaries")
 	flagSet.BoolVar(&args.deterministic_names, "deterministic-names", false, "Disable diriv file name randomisation")
 	flagSet.BoolVar(&args.xchacha, "xchacha", false, "Use XChaCha20-Poly1305 file content encryption")
+	flagSet.BoolVar(&args.argon2id, "argon2id", false, "Use Argon2id for password-based key derivation instead of scrypt")
+	flagSet.BoolVar(&args.cpu_aware, "cpu-aware", false, "Automatically select encryption backend based on CPU capabilities")
+	flagSet.BoolVar(&args.filename_auth, "filename-auth", false, "Enable filename authentication with MAC to detect tampering")
+	flagSet.IntVar(&args.blocksize, "blocksize", 4096, "Block size in bytes (4096, 16384, 32768, 65536)")
+	flagSet.BoolVar(&args.writeback_cache, "writeback-cache", false, "Enable FUSE writeback cache for better write performance")
+	flagSet.BoolVar(&args.async_read, "async-read", false, "Enable FUSE async read for better read performance")
 
 	// Mount options with opposites
 	flagSet.BoolVar(&args.dev, "dev", false, "Allow device files")
@@ -276,6 +286,49 @@ func parseCliOpts(osArgs []string) (args argContainer) {
 			tlog.Fatal.Printf("Invalid \"-openssl\" setting: %v", err)
 			os.Exit(exitcodes.Usage)
 		}
+	}
+
+	// CPU-aware backend selection
+	if args.cpu_aware {
+		cd := cpudetection.New()
+		recommendedBackend := cd.GetRecommendedBackend()
+
+		tlog.Info.Printf("CPU-aware backend selection: %s", cd.String())
+		tlog.Info.Printf("Recommended backend: %s", recommendedBackend)
+		tlog.Info.Printf("Performance hint: %s", cd.GetPerformanceHint())
+
+		// Apply CPU-aware backend selection
+		switch recommendedBackend {
+		case "aes-gcm-openssl":
+			args.openssl = true
+			args.xchacha = false
+			args.aessiv = false
+		case "aes-gcm-go":
+			args.openssl = false
+			args.xchacha = false
+			args.aessiv = false
+		case "xchacha20-poly1305-go":
+			args.openssl = false
+			args.xchacha = true
+			args.aessiv = false
+		}
+
+		tlog.Info.Printf("Selected backend: openssl=%v, xchacha=%v, aessiv=%v",
+			args.openssl, args.xchacha, args.aessiv)
+	}
+
+	// Validate block size
+	validBlockSizes := []int{4096, 16384, 32768, 65536}
+	validBlockSize := false
+	for _, size := range validBlockSizes {
+		if args.blocksize == size {
+			validBlockSize = true
+			break
+		}
+	}
+	if !validBlockSize {
+		tlog.Fatal.Printf("Invalid block size: %d. Valid sizes are: 4096, 16384, 32768, 65536", args.blocksize)
+		os.Exit(exitcodes.Usage)
 	}
 	if len(args.extpass) > 0 && len(args.passfile) != 0 {
 		tlog.Fatal.Printf("The options -extpass and -passfile cannot be used at the same time")

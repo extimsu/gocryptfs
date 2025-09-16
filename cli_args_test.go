@@ -121,7 +121,7 @@ func TestParseCliOpts(t *testing.T) {
 		raw64:       true,
 		hkdf:        true,
 		openssl:     stupidgcm.PreferOpenSSLAES256GCM(), // depends on CPU and build flags
-		scryptn:     16,
+		scryptn:     17,
 	}
 
 	type testcaseContainer struct {

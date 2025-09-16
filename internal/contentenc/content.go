@@ -13,6 +13,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/rfjakob/gocryptfs/v2/internal/cryptocore"
+	"github.com/rfjakob/gocryptfs/v2/internal/parallelcrypto"
 	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
 )
 
@@ -40,6 +41,9 @@ type ContentEnc struct {
 	allZeroBlock []byte
 	// All-zero block of size IVBitLen/8, for fast compares
 	allZeroNonce []byte
+
+	// Enhanced parallel crypto processing
+	parallelCrypto *parallelcrypto.ParallelCrypto
 
 	// Ciphertext block "sync.Pool" pool. Always returns cipherBS-sized byte
 	// slices (usually 4128 bytes).
@@ -72,15 +76,16 @@ func New(cc *cryptocore.CryptoCore, plainBS uint64) *ContentEnc {
 	cReqSize += int(cipherBS)
 	pReqSize := fuse.MAX_KERNEL_WRITE + int(plainBS)
 	c := &ContentEnc{
-		cryptoCore:   cc,
-		plainBS:      plainBS,
-		cipherBS:     cipherBS,
-		allZeroBlock: make([]byte, cipherBS),
-		allZeroNonce: make([]byte, cc.IVLen),
-		cBlockPool:   newBPool(int(cipherBS)),
-		CReqPool:     newBPool(cReqSize),
-		pBlockPool:   newBPool(int(plainBS)),
-		PReqPool:     newBPool(pReqSize),
+		cryptoCore:     cc,
+		plainBS:        plainBS,
+		cipherBS:       cipherBS,
+		allZeroBlock:   make([]byte, cipherBS),
+		allZeroNonce:   make([]byte, cc.IVLen),
+		parallelCrypto: parallelcrypto.New(),
+		cBlockPool:     newBPool(int(cipherBS)),
+		CReqPool:       newBPool(cReqSize),
+		pBlockPool:     newBPool(int(plainBS)),
+		PReqPool:       newBPool(pReqSize),
 	}
 	return c
 }
@@ -97,6 +102,23 @@ func (be *ContentEnc) CipherBS() uint64 {
 
 // DecryptBlocks decrypts a number of blocks
 func (be *ContentEnc) DecryptBlocks(ciphertext []byte, firstBlockNo uint64, fileID []byte) ([]byte, error) {
+	// Calculate number of blocks
+	blockCount := len(ciphertext) / int(be.cipherBS)
+	if blockCount == 0 {
+		return []byte{}, nil
+	}
+
+	// For small numbers of blocks, use sequential processing
+	if !be.parallelCrypto.ShouldUseParallel(blockCount) {
+		return be.decryptBlocksSequential(ciphertext, firstBlockNo, fileID)
+	}
+
+	// Use parallel decryption for large block counts
+	return be.decryptBlocksParallel(ciphertext, firstBlockNo, fileID, blockCount)
+}
+
+// decryptBlocksSequential performs sequential decryption (original logic)
+func (be *ContentEnc) decryptBlocksSequential(ciphertext []byte, firstBlockNo uint64, fileID []byte) ([]byte, error) {
 	cBuf := bytes.NewBuffer(ciphertext)
 	var err error
 	pBuf := bytes.NewBuffer(be.PReqPool.Get()[:0])
@@ -113,6 +135,55 @@ func (be *ContentEnc) DecryptBlocks(ciphertext []byte, firstBlockNo uint64, file
 		blockNo++
 	}
 	return pBuf.Bytes(), err
+}
+
+// decryptBlocksParallel performs parallel decryption for large block counts
+func (be *ContentEnc) decryptBlocksParallel(ciphertext []byte, firstBlockNo uint64, fileID []byte, blockCount int) ([]byte, error) {
+	// Split ciphertext into blocks
+	cipherBlocks := make([][]byte, blockCount)
+	for i := 0; i < blockCount; i++ {
+		start := i * int(be.cipherBS)
+		end := start + int(be.cipherBS)
+		cipherBlocks[i] = ciphertext[start:end]
+	}
+
+	// Decrypt blocks in parallel
+	plainBlocks := make([][]byte, blockCount)
+	var decryptErr error
+	var mu sync.Mutex
+
+	be.parallelCrypto.ProcessBlocksParallel(blockCount, func(startIdx, endIdx int) {
+		for i := startIdx; i < endIdx; i++ {
+			blockNo := firstBlockNo + uint64(i)
+			plainBlock, err := be.DecryptBlock(cipherBlocks[i], blockNo, fileID)
+
+			mu.Lock()
+			if err != nil && decryptErr == nil {
+				decryptErr = err
+			}
+			plainBlocks[i] = plainBlock
+			mu.Unlock()
+		}
+	})
+
+	if decryptErr != nil {
+		// Clean up allocated blocks on error
+		for _, block := range plainBlocks {
+			if block != nil {
+				be.pBlockPool.Put(block)
+			}
+		}
+		return nil, decryptErr
+	}
+
+	// Concatenate plaintext blocks
+	pBuf := bytes.NewBuffer(be.PReqPool.Get()[:0])
+	for _, block := range plainBlocks {
+		pBuf.Write(block)
+		be.pBlockPool.Put(block)
+	}
+
+	return pBuf.Bytes(), nil
 }
 
 // concatAD concatenates the block number and the file ID to a byte blob
@@ -219,12 +290,14 @@ func (be *ContentEnc) encryptBlocksParallel(plaintextBlocks [][]byte, ciphertext
 // to the pool.
 func (be *ContentEnc) EncryptBlocks(plaintextBlocks [][]byte, firstBlockNo uint64, fileID []byte) []byte {
 	ciphertextBlocks := make([][]byte, len(plaintextBlocks))
-	// For large writes, we parallelize encryption.
-	if len(plaintextBlocks) >= 32 && runtime.NumCPU() >= 2 {
-		be.encryptBlocksParallel(plaintextBlocks, ciphertextBlocks, firstBlockNo, fileID)
-	} else {
-		be.doEncryptBlocks(plaintextBlocks, ciphertextBlocks, firstBlockNo, fileID)
-	}
+
+	// Use enhanced parallel encryption
+	be.parallelCrypto.ProcessBlocksParallel(len(plaintextBlocks), func(startIdx, endIdx int) {
+		for i := startIdx; i < endIdx; i++ {
+			ciphertextBlocks[i] = be.EncryptBlock(plaintextBlocks[i], firstBlockNo+uint64(i), fileID)
+		}
+	})
+
 	// Concatenate ciphertext into a single byte array.
 	tmp := be.CReqPool.Get()
 	out := bytes.NewBuffer(tmp[:0])

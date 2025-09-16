@@ -5,13 +5,15 @@ package configfile
 import (
 	"encoding/json"
 	"fmt"
-	"syscall"
-
 	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/rfjakob/gocryptfs/v2/internal/contentenc"
 	"github.com/rfjakob/gocryptfs/v2/internal/cryptocore"
 	"github.com/rfjakob/gocryptfs/v2/internal/exitcodes"
+	"github.com/rfjakob/gocryptfs/v2/internal/memprotect"
+	"github.com/rfjakob/gocryptfs/v2/internal/processhardening"
 	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
 )
 
@@ -26,12 +28,24 @@ const (
 	ConfReverseName = ".gocryptfs.reverse.conf"
 )
 
+// Global memory protection instance for key material
+var memProtect = memprotect.New()
+
+// Global process hardening instance
+var processHardening = processhardening.New()
+
+// CleanupMemoryProtection cleans up all locked memory regions
+// This should be called when the application exits
+func CleanupMemoryProtection() {
+	memProtect.Cleanup()
+}
+
 // FIDO2Params is a structure for storing FIDO2 parameters.
 type FIDO2Params struct {
 	// FIDO2 credential
 	CredentialID []byte
 	// FIDO2 hmac-secret salt
-	HMACSalt []byte
+	HMACSalt      []byte
 	AssertOptions []string
 }
 
@@ -46,6 +60,9 @@ type ConfFile struct {
 	EncryptedKey []byte
 	// ScryptObject stores parameters for scrypt hashing (key derivation)
 	ScryptObject ScryptKDF
+	// Argon2idObject stores parameters for Argon2id hashing (key derivation)
+	// Only used when FlagArgon2id is set
+	Argon2idObject *Argon2idKDF `json:",omitempty"`
 	// Version is the On-Disk-Format version this filesystem uses
 	Version uint16
 	// FeatureFlags is a list of feature flags this filesystem has enabled.
@@ -53,6 +70,9 @@ type ConfFile struct {
 	// mounting. This mechanism is analogous to the ext4 feature flags that are
 	// stored in the superblock.
 	FeatureFlags []string
+	// BlockSize is the plaintext block size in bytes (4096, 16384, 32768, 65536)
+	// Only used when FlagConfigurableBlockSize is set
+	BlockSize int `json:",omitempty"`
 	// FIDO2 parameters
 	FIDO2 *FIDO2Params `json:",omitempty"`
 	// LongNameMax corresponds to the -longnamemax flag
@@ -76,6 +96,9 @@ type CreateArgs struct {
 	XChaCha20Poly1305  bool
 	LongNameMax        uint8
 	Masterkey          []byte
+	Argon2id           bool
+	FilenameAuth       bool
+	BlockSize          int
 }
 
 // Create - create a new config with a random key encrypted with
@@ -118,10 +141,20 @@ func Create(args *CreateArgs) error {
 	if len(args.Fido2CredentialID) > 0 {
 		cf.setFeatureFlag(FlagFIDO2)
 		cf.FIDO2 = &FIDO2Params{
-			CredentialID:     args.Fido2CredentialID,
-			HMACSalt:         args.Fido2HmacSalt,
-			AssertOptions:    args.Fido2AssertOptions,
+			CredentialID:  args.Fido2CredentialID,
+			HMACSalt:      args.Fido2HmacSalt,
+			AssertOptions: args.Fido2AssertOptions,
 		}
+	}
+	if args.Argon2id {
+		cf.setFeatureFlag(FlagArgon2id)
+	}
+	if args.FilenameAuth {
+		cf.setFeatureFlag(FlagFilenameAuth)
+	}
+	if args.BlockSize != 4096 {
+		cf.setFeatureFlag(FlagConfigurableBlockSize)
+		cf.BlockSize = args.BlockSize
 	}
 	// Catch bugs and invalid cli flag combinations early
 	cf.ScryptObject = NewScryptKDF(args.LogN)
@@ -136,9 +169,13 @@ func Create(args *CreateArgs) error {
 		}
 		tlog.PrintMasterkeyReminder(key)
 		// Encrypt it using the password
-		// This sets ScryptObject and EncryptedKey
+		// This sets ScryptObject/Argon2idObject and EncryptedKey
 		// Note: this looks at the FeatureFlags, so call it AFTER setting them.
-		cf.EncryptKey(key, args.Password, args.LogN)
+		if args.Argon2id {
+			cf.EncryptKeyWithArgon2id(key, args.Password)
+		} else {
+			cf.EncryptKey(key, args.Password, args.LogN)
+		}
 		for i := range key {
 			key[i] = 0
 		}
@@ -217,21 +254,30 @@ func (cf *ConfFile) setFeatureFlag(flag flagIota) {
 // password.
 func (cf *ConfFile) DecryptMasterKey(password []byte) (masterkey []byte, err error) {
 	// Generate derived key from password
-	scryptHash := cf.ScryptObject.DeriveKey(password)
+	var derivedKey []byte
+	if cf.IsFeatureFlagSet(FlagArgon2id) {
+		if cf.Argon2idObject == nil {
+			return nil, fmt.Errorf("Argon2id flag set but no Argon2id parameters found")
+		}
+		derivedKey = cf.Argon2idObject.DeriveKey(password)
+	} else {
+		derivedKey = cf.ScryptObject.DeriveKey(password)
+	}
+
+	// Lock derived key in memory
+	memProtect.LockMemory(derivedKey)
 
 	// Unlock master key using password-based key
 	useHKDF := cf.IsFeatureFlagSet(FlagHKDF)
-	ce := getKeyEncrypter(scryptHash, useHKDF)
+	ce := getKeyEncrypter(derivedKey, useHKDF)
 
 	tlog.Warn.Enabled = false // Silence DecryptBlock() error messages on incorrect password
 	masterkey, err = ce.DecryptBlock(cf.EncryptedKey, 0, nil)
 	tlog.Warn.Enabled = true
 
-	// Purge scrypt-derived key
-	for i := range scryptHash {
-		scryptHash[i] = 0
-	}
-	scryptHash = nil
+	// Purge derived key with memory protection
+	memProtect.SecureWipe(derivedKey)
+	derivedKey = nil
 	ce.Wipe()
 	ce = nil
 
@@ -239,6 +285,13 @@ func (cf *ConfFile) DecryptMasterKey(password []byte) (masterkey []byte, err err
 		tlog.Warn.Printf("failed to unlock master key: %s", err.Error())
 		return nil, exitcodes.NewErr("Password incorrect.", exitcodes.PasswordIncorrect)
 	}
+
+	// Lock master key in memory
+	memProtect.LockMemory(masterkey)
+
+	// Use process hardening to protect key buffer
+	processHardening.KeepAlive(masterkey)
+
 	return masterkey, nil
 }
 
@@ -247,20 +300,52 @@ func (cf *ConfFile) DecryptMasterKey(password []byte) (masterkey []byte, err err
 // Uses scrypt with cost parameter logN and stores the scrypt parameters in
 // cf.ScryptObject.
 func (cf *ConfFile) EncryptKey(key []byte, password []byte, logN int) {
+	// Lock input key in memory
+	memProtect.LockMemory(key)
+
 	// Generate scrypt-derived key from password
 	cf.ScryptObject = NewScryptKDF(logN)
 	scryptHash := cf.ScryptObject.DeriveKey(password)
+
+	// Lock scrypt hash in memory
+	memProtect.LockMemory(scryptHash)
 
 	// Lock master key using password-based key
 	useHKDF := cf.IsFeatureFlagSet(FlagHKDF)
 	ce := getKeyEncrypter(scryptHash, useHKDF)
 	cf.EncryptedKey = ce.EncryptBlock(key, 0, nil)
 
-	// Purge scrypt-derived key
-	for i := range scryptHash {
-		scryptHash[i] = 0
-	}
+	// Purge scrypt-derived key with memory protection
+	memProtect.SecureWipe(scryptHash)
 	scryptHash = nil
+	ce.Wipe()
+	ce = nil
+}
+
+// EncryptKeyWithArgon2id - encrypt "key" using an Argon2id hash generated from "password"
+// and store it in cf.EncryptedKey.
+// Uses Argon2id with recommended parameters and stores the Argon2id parameters in
+// cf.Argon2idObject.
+func (cf *ConfFile) EncryptKeyWithArgon2id(key []byte, password []byte) {
+	// Lock input key in memory
+	memProtect.LockMemory(key)
+
+	// Generate Argon2id-derived key from password
+	cf.Argon2idObject = &Argon2idKDF{}
+	*cf.Argon2idObject = NewArgon2idKDF()
+	argon2idHash := cf.Argon2idObject.DeriveKey(password)
+
+	// Lock Argon2id hash in memory
+	memProtect.LockMemory(argon2idHash)
+
+	// Lock master key using password-based key
+	useHKDF := cf.IsFeatureFlagSet(FlagHKDF)
+	ce := getKeyEncrypter(argon2idHash, useHKDF)
+	cf.EncryptedKey = ce.EncryptBlock(key, 0, nil)
+
+	// Purge Argon2id-derived key with memory protection
+	memProtect.SecureWipe(argon2idHash)
+	argon2idHash = nil
 	ce.Wipe()
 	ce = nil
 }
@@ -301,7 +386,31 @@ func (cf *ConfFile) WriteFile() error {
 		return err
 	}
 	err = os.Rename(tmp, cf.filename)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Sync the parent directory to ensure the rename operation is persisted to disk.
+	// This is critical for crash safety - without this, a crash between rename and
+	// directory sync could result in the config file being lost.
+	parentDir := filepath.Dir(cf.filename)
+	parentFd, err := os.Open(parentDir)
+	if err != nil {
+		// If we can't open the parent directory, log a warning but don't fail
+		// the operation since the rename already succeeded.
+		tlog.Warn.Printf("Warning: could not open parent directory for fsync: %v", err)
+		return nil
+	}
+	defer parentFd.Close()
+
+	err = parentFd.Sync()
+	if err != nil {
+		// Log warning but don't fail the operation since the rename already succeeded.
+		// This can happen on network filesystems that don't support directory fsync.
+		tlog.Warn.Printf("Warning: parent directory fsync failed: %v", err)
+	}
+
+	return nil
 }
 
 // getKeyEncrypter is a helper function that returns the right ContentEnc

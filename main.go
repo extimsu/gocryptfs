@@ -17,6 +17,7 @@ import (
 	"github.com/rfjakob/gocryptfs/v2/internal/contentenc"
 	"github.com/rfjakob/gocryptfs/v2/internal/exitcodes"
 	"github.com/rfjakob/gocryptfs/v2/internal/fido2"
+	"github.com/rfjakob/gocryptfs/v2/internal/processhardening"
 	"github.com/rfjakob/gocryptfs/v2/internal/readpassword"
 	"github.com/rfjakob/gocryptfs/v2/internal/speed"
 	"github.com/rfjakob/gocryptfs/v2/internal/tlog"
@@ -124,6 +125,13 @@ func changePassword(args *argContainer) {
 }
 
 func main() {
+	// Clean up memory protection on exit
+	defer configfile.CleanupMemoryProtection()
+
+	// Apply process hardening
+	ph := processhardening.New()
+	ph.HardenProcess()
+
 	mxp := runtime.GOMAXPROCS(0)
 	if mxp < 4 && os.Getenv("GOMAXPROCS") == "" {
 		// On a 2-core machine, setting maxprocs to 4 gives 10% better performance.
@@ -167,6 +175,12 @@ func main() {
 	if args.speed {
 		printVersion()
 		speed.Run()
+		os.Exit(0)
+	}
+	// "-speed-enhanced"
+	if args.speed_enhanced {
+		printVersion()
+		speed.RunEnhanced()
 		os.Exit(0)
 	}
 	if args.wpanic {

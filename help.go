@@ -40,6 +40,7 @@ Common Options (use -hh to show all):
   -reverse           Enable reverse mode
   -ro                Mount read-only
   -speed             Run crypto speed test
+  -speed-enhanced    Run enhanced crypto speed test with decryption and block size scaling
   -version           Print version information
   --                 Stop option parsing
 `)

@@ -403,7 +403,8 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
 		//
 		// Setting SyncRead disables FUSE_CAP_ASYNC_READ. This makes the kernel
 		// do everything in-order without parallelism.
-		SyncRead: args.serialize_reads,
+		// If async_read is enabled, disable SyncRead for better performance
+		SyncRead: args.serialize_reads && !args.async_read,
 		// Attempt to directly call mount(2) before trying fusermount. This means we
 		// can do without fusermount if running as root.
 		DirectMount: true,
@@ -420,6 +421,15 @@ func initGoFuse(rootNode fs.InodeEmbedder, args *argContainer) *fuse.Server {
 	}
 	if args.acl {
 		mOpts.EnableAcl = true
+	}
+	// Add FUSE optimization options
+	if args.writeback_cache {
+		opts["writeback_cache"] = ""
+		tlog.Info.Printf("FUSE writeback cache enabled for better write performance")
+	}
+	if args.async_read {
+		opts["async_read"] = ""
+		tlog.Info.Printf("FUSE async read enabled for better read performance")
 	}
 	// fusermount from libfuse 3.x removed the "nonempty" option and exits
 	// with an error if it sees it. Only add it to the options on libfuse 2.x.
