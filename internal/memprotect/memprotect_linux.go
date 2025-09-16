@@ -5,7 +5,6 @@
 package memprotect
 
 import (
-	"runtime"
 	"syscall"
 	"unsafe"
 
@@ -42,6 +41,43 @@ func (mp *MemoryProtection) LockMemory(data []byte) bool {
 	mp.lockedPages = append(mp.lockedPages, ptr)
 
 	tlog.Debug.Printf("MemoryProtection: Locked %d bytes at %p", len(data), ptr)
+	return true
+}
+
+// LockMemoryPageAligned locks a page-aligned memory region
+// This is more efficient than LockMemory for arbitrary-sized regions
+func (mp *MemoryProtection) LockMemoryPageAligned(data []byte) bool {
+	if !mp.enabled || len(data) == 0 {
+		return false
+	}
+
+	// Get the underlying memory address
+	ptr := unsafe.Pointer(&data[0])
+	size := uintptr(len(data))
+
+	// Calculate page-aligned boundaries
+	pageSize := uintptr(syscall.Getpagesize())
+	alignedPtr := unsafe.Pointer(uintptr(ptr) &^ (pageSize - 1))
+	alignedSize := ((size + pageSize - 1) / pageSize) * pageSize
+
+	// Lock the page-aligned memory region
+	err := mlock(alignedPtr, alignedSize)
+	if err != nil {
+		tlog.Debug.Printf("MemoryProtection: page-aligned mlock failed: %v", err)
+		return false
+	}
+
+	// Mark memory as MADV_DONTDUMP to exclude from core dumps
+	err = madvise(alignedPtr, alignedSize, syscall.MADV_DONTDUMP)
+	if err != nil {
+		tlog.Debug.Printf("MemoryProtection: page-aligned madvise MADV_DONTDUMP failed: %v", err)
+		// Don't fail completely, just log the warning
+	}
+
+	// Track locked pages for cleanup
+	mp.lockedPages = append(mp.lockedPages, alignedPtr)
+
+	tlog.Debug.Printf("MemoryProtection: Page-aligned locked %d bytes at %p (aligned to %p)", len(data), ptr, alignedPtr)
 	return true
 }
 
@@ -105,16 +141,8 @@ func (mp *MemoryProtection) SecureWipe(data []byte) {
 		return
 	}
 
-	// Overwrite with random data
-	for i := range data {
-		data[i] = byte(i % 256) // Simple pattern, could use crypto/rand
-	}
-
-	// Force garbage collection to help clear any copies
-	runtime.GC()
-
-	// Unlock the memory
-	mp.UnlockMemory(data)
+	// Use the enhanced secure wipe
+	mp.SecureWipeEnhanced(data)
 }
 
 // Platform-specific system calls for Linux

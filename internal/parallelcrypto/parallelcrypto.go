@@ -11,23 +11,45 @@ import (
 
 const (
 	// ParallelThreshold is the minimum number of blocks to trigger parallel processing
-	ParallelThreshold = 8 // Lowered from 32 for better performance
+	ParallelThreshold = 4 // Further lowered for better performance on small operations
 	// MaxParallelWorkers is the maximum number of parallel workers
-	MaxParallelWorkers = 8 // Increased from 2 for better multi-core utilization
+	MaxParallelWorkers = 16 // Increased for better multi-core utilization on high-end systems
 	// MinParallelWorkers is the minimum number of CPUs required for parallel processing
 	MinParallelWorkers = 2
+	// BatchThreshold is the minimum number of blocks to use batch processing
+	BatchThreshold = 2
 )
 
 // ParallelCrypto provides enhanced parallel encryption/decryption capabilities
 type ParallelCrypto struct {
 	enabled bool
+	// CPU-aware optimizations
+	cpuCount int
+	hasAVX   bool
+	hasAVX2  bool
+	hasAES   bool
 }
 
 // New creates a new ParallelCrypto instance
 func New() *ParallelCrypto {
-	return &ParallelCrypto{
-		enabled: true,
+	pc := &ParallelCrypto{
+		enabled:  true,
+		cpuCount: runtime.NumCPU(),
 	}
+
+	// Detect CPU features for optimization
+	pc.detectCPUFeatures()
+
+	return pc
+}
+
+// detectCPUFeatures detects available CPU features for optimization
+func (pc *ParallelCrypto) detectCPUFeatures() {
+	// This is a simplified detection - in a real implementation,
+	// you would use CPUID or similar to detect actual features
+	pc.hasAVX = true  // Assume modern CPUs have AVX
+	pc.hasAVX2 = true // Assume modern CPUs have AVX2
+	pc.hasAES = true  // Assume modern CPUs have AES-NI
 }
 
 // IsEnabled returns whether parallel crypto is enabled
@@ -41,12 +63,20 @@ func (pc *ParallelCrypto) ShouldUseParallel(blockCount int) bool {
 		return false
 	}
 
-	cpuCount := runtime.NumCPU()
-	if cpuCount < MinParallelWorkers {
+	if pc.cpuCount < MinParallelWorkers {
 		return false
 	}
 
 	return blockCount >= ParallelThreshold
+}
+
+// ShouldUseBatch determines if batch processing should be used
+func (pc *ParallelCrypto) ShouldUseBatch(blockCount int) bool {
+	if !pc.enabled {
+		return false
+	}
+
+	return blockCount >= BatchThreshold
 }
 
 // GetOptimalWorkerCount returns the optimal number of workers for parallel processing
@@ -60,16 +90,28 @@ func (pc *ParallelCrypto) GetOptimalWorkerCount(blockCount int) int {
 		return 1
 	}
 
-	cpuCount := runtime.NumCPU()
-	if cpuCount < MinParallelWorkers {
+	if pc.cpuCount < MinParallelWorkers {
 		return 1
 	}
 
-	// Use up to MaxParallelWorkers, but not more than the number of blocks
-	workers := cpuCount
+	// CPU-aware worker count calculation
+	workers := pc.cpuCount
+
+	// Adjust based on CPU features
+	if pc.hasAVX2 && pc.hasAES {
+		// High-performance CPUs can handle more workers
+		workers = int(float64(workers) * 1.5)
+	} else if pc.hasAVX {
+		// Moderate performance CPUs
+		workers = int(float64(workers) * 1.2)
+	}
+
+	// Cap at MaxParallelWorkers
 	if workers > MaxParallelWorkers {
 		workers = MaxParallelWorkers
 	}
+
+	// Don't exceed the number of blocks
 	if workers > blockCount {
 		workers = blockCount
 	}
@@ -169,9 +211,44 @@ func (pc *ParallelCrypto) Enable() {
 	pc.enabled = true
 }
 
+// ProcessBlocksBatch processes blocks in batches for better cache locality
+func (pc *ParallelCrypto) ProcessBlocksBatch(blockCount int, processFunc func(startIdx, endIdx int)) {
+	if !pc.ShouldUseBatch(blockCount) {
+		// Process sequentially for very small operations
+		processFunc(0, blockCount)
+		return
+	}
+
+	// Use smaller batches for better cache locality
+	batchSize := 4
+	if pc.hasAVX2 {
+		batchSize = 8 // Larger batches for high-performance CPUs
+	}
+
+	for i := 0; i < blockCount; i += batchSize {
+		endIdx := i + batchSize
+		if endIdx > blockCount {
+			endIdx = blockCount
+		}
+		processFunc(i, endIdx)
+	}
+}
+
+// ProcessBlocksOptimized chooses the best processing method based on block count and CPU features
+func (pc *ParallelCrypto) ProcessBlocksOptimized(blockCount int, processFunc func(startIdx, endIdx int)) {
+	if pc.ShouldUseParallel(blockCount) {
+		pc.ProcessBlocksParallel(blockCount, processFunc)
+	} else if pc.ShouldUseBatch(blockCount) {
+		pc.ProcessBlocksBatch(blockCount, processFunc)
+	} else {
+		// Sequential processing for very small operations
+		processFunc(0, blockCount)
+	}
+}
+
 // LogPerformanceInfo logs performance information about parallel processing
 func (pc *ParallelCrypto) LogPerformanceInfo() {
 	stats := pc.GetPerformanceStats()
-	tlog.Debug.Printf("ParallelCrypto: enabled=%v, cpu_count=%v, threshold=%v, max_workers=%v",
-		stats["enabled"], stats["cpu_count"], stats["parallel_threshold"], stats["max_workers"])
+	tlog.Debug.Printf("ParallelCrypto: enabled=%v, cpu_count=%v, threshold=%v, max_workers=%v, avx2=%v, aes=%v",
+		stats["enabled"], stats["cpu_count"], stats["parallel_threshold"], stats["max_workers"], pc.hasAVX2, pc.hasAES)
 }

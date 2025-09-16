@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -40,5 +41,30 @@ func cleanupOrphanedSocket(path string) {
 
 func Listen(path string) (net.Listener, error) {
 	cleanupOrphanedSocket(path)
-	return net.Listen("unix", path)
+
+	// Create parent directory with secure permissions (0700) if it doesn't exist
+	parentDir := filepath.Dir(path)
+	if err := os.MkdirAll(parentDir, 0700); err != nil {
+		return nil, err
+	}
+
+	// Create the listener
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set secure permissions on the socket file (0600)
+	if err := os.Chmod(path, 0600); err != nil {
+		listener.Close()
+		os.Remove(path)
+		return nil, err
+	}
+
+	// Ensure parent directory permissions are secure (0700)
+	if err := os.Chmod(parentDir, 0700); err != nil {
+		tlog.Warn.Printf("ctlsock: failed to secure parent directory permissions: %v", err)
+	}
+
+	return listener, nil
 }

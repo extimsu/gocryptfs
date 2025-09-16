@@ -37,6 +37,8 @@ func RunEnhanced() {
 	runDecryptionSpeedTest()
 	fmt.Println()
 	runBlockSizeSpeedTest()
+	fmt.Println()
+	RunOptimizedSpeedTests()
 }
 
 // runBasicSpeedTest - run the basic encryption speed test

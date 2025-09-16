@@ -108,13 +108,15 @@ func (be *ContentEnc) DecryptBlocks(ciphertext []byte, firstBlockNo uint64, file
 		return []byte{}, nil
 	}
 
-	// For small numbers of blocks, use sequential processing
-	if !be.parallelCrypto.ShouldUseParallel(blockCount) {
-		return be.decryptBlocksSequential(ciphertext, firstBlockNo, fileID)
+	// Use optimized processing based on block count and CPU features
+	if be.parallelCrypto.ShouldUseParallel(blockCount) {
+		return be.decryptBlocksParallel(ciphertext, firstBlockNo, fileID, blockCount)
+	} else if be.parallelCrypto.ShouldUseBatch(blockCount) {
+		return be.decryptBlocksBatch(ciphertext, firstBlockNo, fileID, blockCount)
 	}
 
-	// Use parallel decryption for large block counts
-	return be.decryptBlocksParallel(ciphertext, firstBlockNo, fileID, blockCount)
+	// Use sequential processing for very small operations
+	return be.decryptBlocksSequential(ciphertext, firstBlockNo, fileID)
 }
 
 // decryptBlocksSequential performs sequential decryption (original logic)
@@ -177,8 +179,73 @@ func (be *ContentEnc) decryptBlocksParallel(ciphertext []byte, firstBlockNo uint
 		return nil, decryptErr
 	}
 
-	// Concatenate plaintext blocks
+	// Pre-calculate total size for better memory allocation
+	totalSize := 0
+	for _, block := range plainBlocks {
+		totalSize += len(block)
+	}
+
+	// Concatenate plaintext blocks with pre-allocated capacity
 	pBuf := bytes.NewBuffer(be.PReqPool.Get()[:0])
+	pBuf.Grow(totalSize) // Pre-allocate capacity for better performance
+
+	for _, block := range plainBlocks {
+		pBuf.Write(block)
+		be.pBlockPool.Put(block)
+	}
+
+	return pBuf.Bytes(), nil
+}
+
+// decryptBlocksBatch performs batch decryption for medium-sized operations
+func (be *ContentEnc) decryptBlocksBatch(ciphertext []byte, firstBlockNo uint64, fileID []byte, blockCount int) ([]byte, error) {
+	// Split ciphertext into blocks
+	cipherBlocks := make([][]byte, blockCount)
+	for i := 0; i < blockCount; i++ {
+		start := i * int(be.cipherBS)
+		end := start + int(be.cipherBS)
+		cipherBlocks[i] = ciphertext[start:end]
+	}
+
+	// Decrypt blocks in batches for better cache locality
+	plainBlocks := make([][]byte, blockCount)
+	var decryptErr error
+	var mu sync.Mutex
+
+	be.parallelCrypto.ProcessBlocksBatch(blockCount, func(startIdx, endIdx int) {
+		for i := startIdx; i < endIdx; i++ {
+			blockNo := firstBlockNo + uint64(i)
+			plainBlock, err := be.DecryptBlock(cipherBlocks[i], blockNo, fileID)
+
+			mu.Lock()
+			if err != nil && decryptErr == nil {
+				decryptErr = err
+			}
+			plainBlocks[i] = plainBlock
+			mu.Unlock()
+		}
+	})
+
+	if decryptErr != nil {
+		// Clean up allocated blocks on error
+		for _, block := range plainBlocks {
+			if block != nil {
+				be.pBlockPool.Put(block)
+			}
+		}
+		return nil, decryptErr
+	}
+
+	// Pre-calculate total size for better memory allocation
+	totalSize := 0
+	for _, block := range plainBlocks {
+		totalSize += len(block)
+	}
+
+	// Concatenate plaintext blocks with pre-allocated capacity
+	pBuf := bytes.NewBuffer(be.PReqPool.Get()[:0])
+	pBuf.Grow(totalSize) // Pre-allocate capacity for better performance
+
 	for _, block := range plainBlocks {
 		pBuf.Write(block)
 		be.pBlockPool.Put(block)
@@ -292,16 +359,24 @@ func (be *ContentEnc) encryptBlocksParallel(plaintextBlocks [][]byte, ciphertext
 func (be *ContentEnc) EncryptBlocks(plaintextBlocks [][]byte, firstBlockNo uint64, fileID []byte) []byte {
 	ciphertextBlocks := make([][]byte, len(plaintextBlocks))
 
-	// Use enhanced parallel encryption
-	be.parallelCrypto.ProcessBlocksParallel(len(plaintextBlocks), func(startIdx, endIdx int) {
+	// Use optimized parallel encryption with CPU-aware processing
+	be.parallelCrypto.ProcessBlocksOptimized(len(plaintextBlocks), func(startIdx, endIdx int) {
 		for i := startIdx; i < endIdx; i++ {
 			ciphertextBlocks[i] = be.EncryptBlock(plaintextBlocks[i], firstBlockNo+uint64(i), fileID)
 		}
 	})
 
-	// Concatenate ciphertext into a single byte array.
+	// Pre-calculate total size for better memory allocation
+	totalSize := 0
+	for _, block := range ciphertextBlocks {
+		totalSize += len(block)
+	}
+
+	// Concatenate ciphertext into a single byte array with pre-allocated capacity
 	tmp := be.CReqPool.Get()
 	out := bytes.NewBuffer(tmp[:0])
+	out.Grow(totalSize) // Pre-allocate capacity for better performance
+
 	for _, v := range ciphertextBlocks {
 		out.Write(v)
 		// Return the memory to cBlockPool
